@@ -1,5 +1,5 @@
 // 뽑기 남은 횟수: 인터넷이 약한 곳에서도 열리도록 앱 파일을 기기에 보관한다.
-const CACHE = 'ppopgi-tongjang-db24ebfe87';
+const CACHE = 'ppopgi-tongjang-65e892ffeb';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 
