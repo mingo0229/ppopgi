@@ -1,0 +1,1326 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>뽑기 통장</title>
+<meta name="description" content="인형뽑기 한 달 30회를 세어 주는 카운터">
+<meta name="theme-color" content="#E9F1FF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141026" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="뽑기 통장">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&amp;family=Gaegu:wght@400;700&amp;display=swap">
+<style>
+:root {
+  /* Layout: one column. The claw machine is the single bold object;
+     the limits and the passbook below it stay quiet. */
+  color-scheme: light;
+  --wall: #E9F1FF;          /* arcade wall */
+  --ink: #261A3D;           /* text and outlines on the wall */
+  --ink-soft: #62577E;      /* secondary text */
+  --paper: #FFFFFF;         /* passbook page */
+  --rule: #CAD6EC;          /* hairlines */
+  --plus: #0B7A63;          /* plays given back */
+  --stop: #B4380F;          /* a limit is used up */
+  --focus: #1F5FFF;
+
+  /* The machine keeps its own colours in both themes, like a lit cabinet in a dark room. */
+  --cab: #FF6497;           /* cabinet body */
+  --cab-deep: #E0487D;      /* cabinet base */
+  --deck: #FFEAF1;          /* control deck */
+  --glass: #1B3C64;         /* inside the glass box */
+  --glass-deep: #0F2443;
+  --led-bg: #1C1233;        /* counter display */
+  --led: #FFE169;           /* counter digits */
+  --btn: #FFD43B;           /* arcade button */
+  --btn-edge: #E5A400;
+  --line: #1D1331;          /* outlines on the machine */
+  --on-machine: #261A3D;
+  --on-machine-soft: #6B5876;
+  --note: #FFF5C2;          /* taped paper note */
+
+  --font-display: "Bagel Fat One", "Jua", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", "Malgun Gothic", "Segoe UI", system-ui, sans-serif;
+  --font-note: "Gaegu", "Nanum Pen Script", "Apple SD Gothic Neo", "Malgun Gothic", cursive;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --wall: #141026;
+    --ink: #F3EDFF;
+    --ink-soft: #B0A5CB;
+    --paper: #221939;
+    --rule: #3B3058;
+    --plus: #72E0C3;
+    --stop: #FFB48C;
+    --focus: #9DBBFF;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --wall: #141026;
+  --ink: #F3EDFF;
+  --ink-soft: #B0A5CB;
+  --paper: #221939;
+  --rule: #3B3058;
+  --plus: #72E0C3;
+  --stop: #FFB48C;
+  --focus: #9DBBFF;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html, body { min-height: 100%; }
+body {
+  margin: 0;
+  background: var(--wall);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  word-break: keep-all;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, p, ul { margin: 0; }
+button {
+  font: inherit;
+  color: inherit;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+button:not(:disabled) { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+[hidden] { display: none !important; }
+
+.app {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  max-width: 440px;
+  margin: 0 auto;
+  padding:
+    max(18px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right))
+    max(32px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+}
+
+/* ---------- header ---------- */
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.top h1 { font: 400 30px/1.1 var(--font-display); }
+.today { color: var(--ink-soft); font-size: 14px; }
+
+.warn {
+  padding: 10px 14px;
+  border: 2px solid var(--stop);
+  border-radius: 12px;
+  color: var(--stop);
+  font-size: 14px;
+}
+
+.tip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  font-size: 14px;
+}
+.tip-actions { display: flex; flex-direction: column; gap: 8px; }
+
+/* ---------- the machine ---------- */
+.machine {
+  display: grid;
+  gap: 10px;
+  padding: 12px 12px 22px;
+  background: var(--cab);
+  color: var(--on-machine);
+  border: 3px solid var(--line);
+  border-radius: 30px 30px 24px 24px;
+  box-shadow: inset 0 -10px 0 var(--cab-deep), 0 7px 0 var(--line);
+  -webkit-user-select: none;
+  user-select: none;
+}
+.machine :focus-visible { outline-color: #1F5FFF; }
+
+.display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 18px 8px;
+  background: var(--led-bg);
+  border: 3px solid var(--line);
+  border-radius: 20px 20px 14px 14px;
+  box-shadow: inset 0 4px 0 rgb(0 0 0 / .4);
+}
+.display-label { color: #C9BFE8; font-size: 15px; line-height: 1.3; }
+.display-label span {
+  display: block;
+  min-height: 1.15em;
+  font: 400 22px/1.15 var(--font-display);
+  color: #FFFFFF;
+}
+.display-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--led);
+  text-shadow: 0 0 16px rgb(255 225 105 / .4);
+}
+.credit {
+  display: inline-block;
+  font: 400 62px/1 var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+.credit-unit { font: 400 24px/1 var(--font-display); }
+
+.glass {
+  position: relative;
+  height: 172px;
+  overflow: hidden;
+  background:
+    linear-gradient(0deg, #25507F 0 15px, transparent 15px),
+    linear-gradient(180deg, var(--glass), var(--glass-deep));
+  border: 3px solid var(--line);
+  border-radius: 14px;
+}
+.glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  background: linear-gradient(115deg,
+    transparent 0 16%, rgb(255 255 255 / .10) 16% 25%,
+    transparent 25% 29%, rgb(255 255 255 / .06) 29% 32%, transparent 32%);
+}
+.rail {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 3;
+  height: 11px;
+  background: #B9C6DE;
+  border-bottom: 3px solid var(--line);
+}
+.claw {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 2;
+  width: 120px;
+  height: 150px;
+  margin-left: -60px;
+  overflow: visible;
+}
+.prong-l { transform-origin: 52px 52px; }
+.prong-r { transform-origin: 68px 52px; }
+
+.pile {
+  position: absolute;
+  inset: auto 8px 5px 8px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap-reverse;
+  align-items: flex-end;
+  justify-content: center;
+}
+.plush {
+  flex: none;
+  margin: 0 -3px -3px;
+  transform: rotate(var(--r, 0deg));
+}
+.plush.small { width: 40px; height: 40px; }
+.plush.big { width: 62px; height: 62px; }
+.pile-more {
+  position: absolute;
+  top: 20px;
+  right: 10px;
+  z-index: 3;
+  padding: 2px 10px;
+  background: var(--note);
+  color: var(--on-machine);
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  font-size: 13px;
+}
+.glass-empty {
+  position: absolute;
+  inset: auto 0 28px 0;
+  z-index: 1;
+  color: #AFC3E6;
+  font-size: 14px;
+  text-align: center;
+}
+
+.note {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 5;
+  width: min(86%, 270px);
+  padding: 16px 14px 12px;
+  background: var(--note);
+  color: var(--on-machine);
+  border: 2px solid var(--line);
+  border-radius: 3px;
+  box-shadow: 0 4px 0 rgb(0 0 0 / .28);
+  font-family: var(--font-note);
+  text-align: center;
+  transform: translate(-50%, -46%) rotate(-2.5deg);
+}
+.note::before, .note::after {
+  content: "";
+  position: absolute;
+  top: -9px;
+  width: 46px;
+  height: 17px;
+  background: rgb(255 255 255 / .62);
+  border: 1px solid rgb(29 19 49 / .25);
+}
+.note::before { left: 10px; transform: rotate(-8deg); }
+.note::after { right: 10px; transform: rotate(7deg); }
+.note-title { font-size: 25px; font-weight: 700; line-height: 1.15; }
+.note-body { margin-top: 2px; font-size: 19px; line-height: 1.25; }
+
+.spark {
+  position: absolute;
+  left: 50%;
+  bottom: 44px;
+  z-index: 6;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.deck {
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px 14px;
+  background: var(--deck);
+  border: 3px solid var(--line);
+  border-radius: 14px 14px 18px 18px;
+}
+.now { min-height: 1.5em; font-size: 15px; }
+.now strong { font: 400 19px/1 var(--font-display); }
+.now .why { color: var(--on-machine-soft); font-size: 13px; white-space: nowrap; }
+.controls {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+.dome-wrap { display: grid; justify-items: center; gap: 6px; }
+.bezel {
+  display: block;
+  padding: 7px 7px 13px;
+  background: #F5B5CA;
+  border: 3px solid var(--line);
+  border-radius: 50%;
+}
+.dome {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  width: 104px;
+  height: 104px;
+  padding: 0;
+  background:
+    radial-gradient(circle at 25% 19%, rgb(255 255 255 / .85) 0 6%, transparent 7%),
+    radial-gradient(circle at 50% 38%, #FFE680 0%, var(--btn) 58%, #F2B91A 100%);
+  color: var(--on-machine);
+  border: 3px solid var(--line);
+  border-radius: 50%;
+  box-shadow: 0 6px 0 var(--btn-edge), 0 6px 0 3px var(--line);
+  font-family: var(--font-display);
+  transition: transform .07s ease-out, box-shadow .07s ease-out;
+}
+.dome-name { font-size: 28px; line-height: 1; }
+.dome-delta { font-size: 20px; line-height: 1.1; }
+.dome:active:not(:disabled) {
+  transform: translateY(5px);
+  box-shadow: 0 1px 0 var(--btn-edge), 0 1px 0 3px var(--line);
+}
+.dome:disabled {
+  background: #D9D3E3;
+  color: #6F6584;
+  box-shadow: 0 2px 0 #B5ACC4, 0 2px 0 3px var(--line);
+  transform: translateY(4px);
+}
+.hint { color: var(--on-machine-soft); font-size: 13px; }
+.prizes { display: grid; gap: 9px; }
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 8px;
+  min-height: 52px;
+  padding: 8px 10px 8px 14px;
+  background: #FFFFFF;
+  color: var(--on-machine);
+  border: 3px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 4px 0 var(--line);
+  font-size: 16px;
+  font-weight: 700;
+  text-align: left;
+  transition: transform .07s ease-out, box-shadow .07s ease-out;
+}
+.key:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--line); }
+.gain {
+  padding: 6px 10px 5px;
+  background: #D5F4EA;
+  color: #0B7A63;
+  border-radius: 999px;
+  font: 400 18px/1 var(--font-display);
+}
+@media (max-width: 384px) {
+  .machine { padding-inline: 10px; }
+  .deck { padding-inline: 12px; }
+  .controls { gap: 12px; }
+  .dome { width: 92px; height: 92px; }
+  .dome-name { font-size: 25px; }
+  .dome-delta { font-size: 18px; }
+  .key { gap: 4px 6px; padding: 8px 8px 8px 12px; font-size: 15px; }
+  .gain { padding: 6px 8px 5px; font-size: 17px; }
+}
+
+/* ---------- limits: a gauge per period, filled with what is left ---------- */
+.limits { display: grid; gap: 12px; }
+.limit {
+  display: grid;
+  grid-template-columns: 5.5em minmax(0, 1fr) 4.8em;
+  align-items: center;
+  gap: 12px;
+}
+.limit-name { font-size: 15px; }
+.gauge {
+  display: block;
+  height: 16px;
+  overflow: hidden;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+}
+.gauge-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--btn);
+  border-radius: 999px;
+  box-shadow: 2px 0 0 var(--ink), inset 0 -3px 0 var(--btn-edge);
+  transition: width .25s ease-out;
+}
+.limit-count {
+  color: var(--ink-soft);
+  font-size: 13px;
+  text-align: right;
+  white-space: nowrap;
+}
+.limit-count strong {
+  margin-right: 1px;
+  color: var(--ink);
+  font: 400 18px/1 var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+.limit.spent .gauge-fill { visibility: hidden; }
+.limit.spent .limit-count { color: var(--stop); font-weight: 700; }
+
+/* ---------- passbook ---------- */
+h2 { font: 400 22px/1.2 var(--font-display); }
+.ledger { display: grid; gap: 10px; }
+.ledger-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.summary { color: var(--ink-soft); font-size: 15px; }
+.book {
+  overflow-x: auto;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+}
+.book table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.book th, .book td { padding: 9px 12px; text-align: left; white-space: nowrap; }
+.book thead th {
+  color: var(--ink-soft);
+  border-bottom: 2px solid var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+}
+.book tbody td, .book tbody th { border-top: 1px solid var(--rule); }
+.book tbody tr:first-child th { border-top: 0; }
+.book tr.day th { padding-top: 12px; font-size: 13px; font-weight: 700; }
+.book .num { text-align: right; }
+.plus { color: var(--plus); font-weight: 700; }
+.minus { color: var(--ink-soft); }
+
+.ghost {
+  min-height: 40px;
+  padding: 8px 14px;
+  background: transparent;
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.ghost:disabled { opacity: .4; }
+.more { justify-self: start; }
+
+/* ---------- rules and footer ---------- */
+.rules { display: grid; gap: 8px; }
+.rules ul { display: grid; gap: 6px; padding-left: 1.15em; font-size: 15px; }
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+.text-danger {
+  min-height: 44px;
+  padding: 10px 0;
+  background: none;
+  color: var(--stop);
+  border: 0;
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---------- toast and dialog ---------- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  padding: 8px 8px 8px 18px;
+  background: var(--ink);
+  color: var(--wall);
+  border-radius: 26px;
+  box-shadow: 0 8px 22px rgb(10 6 24 / .3);
+  font-size: 15px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 16px);
+  transition: opacity .18s ease-out, transform .18s ease-out;
+}
+.toast.show { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+.toast span { padding: 6px 0; }
+.toast button {
+  flex: none;
+  min-height: 36px;
+  padding: 6px 14px;
+  background: var(--btn);
+  color: var(--on-machine);
+  border: 0;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+dialog {
+  width: min(340px, calc(100% - 32px));
+  padding: 20px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 3px solid var(--ink);
+  border-radius: 20px;
+}
+dialog::backdrop { background: rgb(15 9 32 / .6); }
+dialog p { margin-top: 8px; font-size: 15px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.danger {
+  min-height: 40px;
+  padding: 8px 14px;
+  background: var(--stop);
+  color: var(--paper);
+  border: 2px solid var(--stop);
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* ---------- motion: only as an answer to a tap ---------- */
+@keyframes dip {
+  0% { transform: translateY(0); }
+  42%, 58% { transform: translateY(62px); }
+  100% { transform: translateY(0); }
+}
+@keyframes grab-l {
+  0%, 38% { transform: rotate(0deg); }
+  52%, 86% { transform: rotate(-17deg); }
+  100% { transform: rotate(0deg); }
+}
+@keyframes grab-r {
+  0%, 38% { transform: rotate(0deg); }
+  52%, 86% { transform: rotate(17deg); }
+  100% { transform: rotate(0deg); }
+}
+@keyframes bump {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+@keyframes plop {
+  0% { transform: translateY(-150px) rotate(var(--r, 0deg)); }
+  70% { transform: translateY(5px) rotate(var(--r, 0deg)); }
+  100% { transform: translateY(0) rotate(var(--r, 0deg)); }
+}
+@keyframes spark {
+  0% { opacity: 1; transform: translate(-50%, 0) rotate(45deg) scale(.6); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), var(--dy)) rotate(220deg) scale(1.1); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .machine.grabbing .claw-arm { animation: dip .9s cubic-bezier(.5, 0, .3, 1); }
+  .machine.grabbing .prong-l { animation: grab-l .9s ease-in-out; }
+  .machine.grabbing .prong-r { animation: grab-r .9s ease-in-out; }
+  .credit.bump { animation: bump .28s ease-out; }
+  .plush.new { animation: plop .55s cubic-bezier(.3, 1.3, .5, 1) both; }
+  .spark { animation: spark .75s ease-out forwards; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dome, .key, .toast, .gauge-fill { transition: none; }
+}
+</style>
+</head>
+<body>
+<main class="app">
+  <aside class="tip" id="installTip" hidden>
+    <p id="installText"></p>
+    <div class="tip-actions">
+      <button type="button" class="ghost" id="installBtn" hidden>앱 설치</button>
+      <button type="button" class="ghost" id="installClose">닫기</button>
+    </div>
+  </aside>
+  <header class="top">
+    <h1>뽑기 통장</h1>
+    <p class="today" id="today"></p>
+  </header>
+
+  <p class="warn" id="storageWarn" hidden>이 브라우저에서는 기록을 저장할 수 없어요. 창을 닫으면 기록이 사라져요.</p>
+
+  <section class="machine" id="machine" aria-label="인형뽑기 기계">
+    <div class="display">
+      <p class="display-label"><span id="monthLabel"></span>남은 횟수</p>
+      <p class="display-value"><span class="credit" id="credit">30</span><span class="credit-unit">회</span></p>
+    </div>
+
+    <div class="glass" id="glass">
+      <div class="rail" aria-hidden="true"></div>
+      <svg class="claw" viewBox="0 0 120 150" aria-hidden="true" focusable="false">
+        <rect x="43" y="6" width="34" height="14" rx="4" fill="#8FA0C2" stroke="#1D1331" stroke-width="3"/>
+        <g class="claw-arm">
+          <rect x="57" y="-90" width="6" height="134" fill="#C9D3E6" stroke="#1D1331" stroke-width="2.5"/>
+          <g class="prong-l">
+            <path d="M52 52 C36 58 28 76 40 92" fill="none" stroke="#1D1331" stroke-width="9" stroke-linecap="round"/>
+            <path d="M52 52 C36 58 28 76 40 92" fill="none" stroke="#DCE5F4" stroke-width="4" stroke-linecap="round"/>
+          </g>
+          <g class="prong-r">
+            <path d="M68 52 C84 58 92 76 80 92" fill="none" stroke="#1D1331" stroke-width="9" stroke-linecap="round"/>
+            <path d="M68 52 C84 58 92 76 80 92" fill="none" stroke="#DCE5F4" stroke-width="4" stroke-linecap="round"/>
+          </g>
+          <path d="M60 56 V76" fill="none" stroke="#1D1331" stroke-width="9" stroke-linecap="round"/>
+          <path d="M60 56 V76" fill="none" stroke="#DCE5F4" stroke-width="4" stroke-linecap="round"/>
+          <rect x="44" y="38" width="32" height="20" rx="8" fill="#FFD43B" stroke="#1D1331" stroke-width="3"/>
+          <circle cx="60" cy="48" r="3" fill="#1D1331"/>
+        </g>
+      </svg>
+      <div class="pile" id="pile" role="img" aria-label="이번 달에 뽑은 인형 없음"></div>
+      <span class="pile-more" id="pileMore" hidden></span>
+      <p class="glass-empty" id="glassEmpty">뽑은 인형이 여기에 모여요</p>
+      <div class="note" id="note" hidden>
+        <p class="note-title" id="noteTitle"></p>
+        <p class="note-body" id="noteBody"></p>
+      </div>
+    </div>
+
+    <div class="deck">
+      <p class="now" id="now"></p>
+      <div class="controls">
+        <div class="dome-wrap">
+          <span class="bezel">
+            <button type="button" class="dome" id="playBtn" aria-describedby="domeHint now">
+              <span class="dome-name">뽑기</span>
+              <span class="dome-delta">−1</span>
+            </button>
+          </span>
+          <p class="hint" id="domeHint">한 판마다 눌러요</p>
+        </div>
+        <div class="prizes" role="group" aria-labelledby="prizesLabel">
+          <p class="hint" id="prizesLabel">인형을 뽑았다면</p>
+          <button type="button" class="key" id="smallBtn"><span>작은 인형</span><span class="gain" id="smallGain">+3</span></button>
+          <button type="button" class="key" id="bigBtn"><span>큰 인형</span><span class="gain" id="bigGain">+6</span></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="limits" aria-label="기간별 남은 횟수">
+    <div class="limit" id="limDay">
+      <span class="limit-name">오늘</span>
+      <span class="gauge" aria-hidden="true"><span class="gauge-fill"></span></span>
+      <span class="limit-count" id="limDayCount"><strong>10</strong>회 남음</span>
+    </div>
+    <div class="limit" id="limWeek">
+      <span class="limit-name">이번 주</span>
+      <span class="gauge" aria-hidden="true"><span class="gauge-fill"></span></span>
+      <span class="limit-count" id="limWeekCount"><strong>15</strong>회 남음</span>
+    </div>
+    <div class="limit" id="limHour">
+      <span class="limit-name">최근 1시간</span>
+      <span class="gauge" aria-hidden="true"><span class="gauge-fill"></span></span>
+      <span class="limit-count" id="limHourCount"><strong>8</strong>회 남음</span>
+    </div>
+  </section>
+
+  <section class="ledger" aria-labelledby="ledgerTitle">
+    <div class="ledger-head">
+      <h2 id="ledgerTitle"><span id="ledgerMonth"></span> 내역</h2>
+      <button type="button" class="ghost" id="undoBtn" disabled>마지막 기록 되돌리기</button>
+    </div>
+    <p class="summary" id="summary">아직 기록이 없어요. 뽑기 버튼을 누르면 여기에 적혀요.</p>
+    <div class="book" id="book" hidden>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">시각</th>
+            <th scope="col">내용</th>
+            <th scope="col" class="num">증감</th>
+            <th scope="col" class="num">남은 횟수</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <button type="button" class="ghost more" id="moreBtn" hidden></button>
+  </section>
+
+  <section class="rules" aria-labelledby="rulesTitle">
+    <h2 id="rulesTitle">규칙</h2>
+    <ul id="rulesList">
+      <li>매달 1일에 30회로 새로 시작해요. 남은 횟수는 다음 달로 넘어가지 않아요.</li>
+      <li>뽑기 한 판(1,000원)마다 1회가 줄어요.</li>
+      <li>인형을 뽑으면 작은 인형은 3회, 큰 인형은 6회를 돌려받아요. 이번 달 남은 횟수와 오늘·이번 주·1시간 횟수에 모두 더해져요.</li>
+      <li>기본 횟수는 하루 10회, 일주일(월~일) 15회, 1시간에 8회예요.</li>
+    </ul>
+  </section>
+
+  <footer class="foot">
+    <p>기록은 이 기기의 브라우저에만 저장돼요.</p>
+    <button type="button" class="text-danger" id="resetBtn">기록 모두 지우기</button>
+  </footer>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <span id="toastText"></span>
+  <button type="button" id="toastUndo">되돌리기</button>
+</div>
+
+<dialog id="resetDialog" aria-labelledby="resetTitle">
+  <h2 id="resetTitle">기록을 모두 지울까요?</h2>
+  <p id="resetBody">남은 횟수가 30회로 돌아가요. 지운 기록은 되살릴 수 없어요.</p>
+  <div class="dialog-actions">
+    <button type="button" class="ghost" id="resetCancel">그만두기</button>
+    <button type="button" class="danger" id="resetConfirm">모두 지우기</button>
+  </div>
+</dialog>
+
+<noscript><p style="padding:16px">이 앱은 자바스크립트를 켜야 쓸 수 있어요.</p></noscript>
+
+<script>
+(() => {
+  'use strict';
+
+  /* logic:start */
+  // 규칙은 여기 숫자만 바꾸면 화면의 안내 문구까지 함께 바뀝니다.
+  const RULES = Object.freeze({
+    monthly: 30,  // 매달 1일에 시작하는 횟수
+    perHour: 8,   // 최근 60분의 기본 횟수
+    perDay: 10,   // 하루(자정~자정)의 기본 횟수
+    perWeek: 15,  // 일주일(월요일~일요일)의 기본 횟수
+    small: 3,     // 작은 인형을 뽑으면 돌려받는 횟수
+    big: 6,       // 큰 인형을 뽑으면 돌려받는 횟수
+    price: 1000   // 한 판 가격(원)
+  });
+  const HOUR = 60 * 60 * 1000;
+  // 기록 하나가 남은 횟수를 얼마나 바꾸는지: 뽑기는 1회 줄고, 인형은 그만큼 돌려받는다.
+  const DELTA = Object.freeze({ play: -1, small: RULES.small, big: RULES.big });
+  const BLOCK_ORDER = ['month', 'week', 'day', 'hour'];
+
+  // 저장된 기록에서 형식이 맞는 것만 남긴다.
+  function sanitize(list) {
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((e) => e && Number.isFinite(e.t) && Object.prototype.hasOwnProperty.call(DELTA, e.type))
+      .map((e) => ({ t: e.t, type: e.type }));
+  }
+
+  // 지금 시각이 속한 하루·일주일·한 달의 시작과 끝(기기 현지 시간 기준).
+  function periods(now) {
+    const d = new Date(now);
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const day = d.getDate();
+    const sinceMonday = (d.getDay() + 6) % 7;
+    return {
+      dayStart: new Date(y, m, day).getTime(),
+      dayEnd: new Date(y, m, day + 1).getTime(),
+      weekStart: new Date(y, m, day - sinceMonday).getTime(),
+      weekEnd: new Date(y, m, day - sinceMonday + 7).getTime(),
+      monthStart: new Date(y, m, 1).getTime(),
+      monthEnd: new Date(y, m + 1, 1).getTime()
+    };
+  }
+
+  // 기록 전체에서 지금 상태를 계산한다. 화면의 모든 숫자가 여기서 나온다.
+  // 한 달·일주일·하루·최근 1시간의 남은 횟수를 모두 같은 방식으로 센다:
+  // 기본 횟수에서 그 기간에 한 뽑기만큼 빼고, 그 기간에 뽑은 인형만큼 더한다.
+  function summarize(events, now) {
+    const p = periods(now);
+    const left = { month: RULES.monthly, week: RULES.perWeek, day: RULES.perDay, hour: RULES.perHour };
+    let monthPlays = 0;
+    let monthSmall = 0;
+    let monthBig = 0;
+    let hourNext = null;
+
+    for (const e of events) {
+      const delta = DELTA[e.type];
+      if (e.t >= p.monthStart && e.t < p.monthEnd) {
+        left.month += delta;
+        if (e.type === 'play') monthPlays += 1;
+        else if (e.type === 'small') monthSmall += 1;
+        else monthBig += 1;
+      }
+      if (e.t >= p.weekStart && e.t < p.weekEnd) left.week += delta;
+      if (e.t >= p.dayStart && e.t < p.dayEnd) left.day += delta;
+      if (e.t > now - HOUR && e.t <= now) {
+        left.hour += delta;
+        // 최근 1시간 안의 기록 중 가장 먼저 1시간을 넘기는 시각
+        if (hourNext === null || e.t + HOUR < hourNext) hourNext = e.t + HOUR;
+      }
+    }
+
+    // 지금 이어서 할 수 있는 횟수와, 그 숫자를 정하는 규칙(같으면 긴 기간 쪽).
+    const canNow = Math.max(0, Math.min(left.month, left.week, left.day, left.hour));
+    const limitedBy = BLOCK_ORDER.find((rule) => left[rule] <= canNow);
+
+    return {
+      periods: p,
+      left,
+      remaining: left.month,
+      monthPlays,
+      monthSmall,
+      monthBig,
+      canNow,
+      limitedBy,
+      hourNext,
+      spent: monthPlays * RULES.price
+    };
+  }
+
+  // 막혀 있을 때, 언제 다시 열리는지와 마지막까지 막고 있는 규칙을 찾는다.
+  // 남은 횟수는 자정(월요일·1일 포함)과 기록이 '최근 1시간'에서 빠지는 순간에만 바뀌므로,
+  // 그 시각들을 차례로 건너가며 처음으로 1회 이상 가능해지는 때를 고른다.
+  function nextOpen(events, now) {
+    let t = now;
+    let rule = null;
+    for (let step = 0; step < 500; step += 1) {
+      const s = summarize(events, t);
+      if (s.canNow > 0) return rule ? { rule, until: t } : null;
+      rule = s.limitedBy;
+      t = s.hourNext === null ? s.periods.dayEnd : Math.min(s.periods.dayEnd, s.hourNext);
+    }
+    return { rule, until: t };
+  }
+
+  // 이번 달 내역. 통장처럼 줄마다 그때의 남은 횟수를 함께 적는다(최신순).
+  function ledgerRows(events, now) {
+    const p = periods(now);
+    let balance = RULES.monthly;
+    return events
+      .filter((e) => e.t >= p.monthStart && e.t < p.monthEnd)
+      .sort((a, b) => a.t - b.t)
+      .map((e) => {
+        balance += DELTA[e.type];
+        return { t: e.t, type: e.type, delta: DELTA[e.type], balance };
+      })
+      .reverse();
+  }
+  /* logic:end */
+
+  const STORE_KEY = 'ppopgi-tongjang:v1';
+  const NAMES = { play: '뽑기', small: '작은 인형', big: '큰 인형' };
+  const PILE_MAX = 12;
+  const LEDGER_PREVIEW = 8;
+  const PLUSH_COLORS = ['#FFB5C8', '#FFE08A', '#A9E8D0', '#BBC8FF', '#FFC9A6', '#DDBBFF'];
+  const LINE = '#1D1331';
+
+  const $ = (id) => document.getElementById(id);
+  const fmtTime = new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit' });
+  const fmtDay = new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' });
+  const fmtDate = new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' });
+
+  let events = [];
+  let canStore = false;
+  let showAll = false;
+  let freshWin = 0;
+  let ledgerKey = '';
+  let pileKey = '';
+  let nowKey = '';
+  let wakeTimer = 0;
+  let toastTimer = 0;
+
+  /* ---------- storage ---------- */
+  function probeStorage() {
+    try {
+      const probe = STORE_KEY + ':probe';
+      localStorage.setItem(probe, '1');
+      localStorage.removeItem(probe);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+  function readStore() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      return raw ? sanitize(JSON.parse(raw).events) : [];
+    } catch (err) {
+      return [];
+    }
+  }
+  function writeStore() {
+    if (canStore) {
+      try {
+        localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, events }));
+      } catch (err) {
+        canStore = false;
+      }
+    }
+    $('storageWarn').hidden = canStore;
+  }
+
+  /* ---------- small helpers ---------- */
+  function setText(id, text) {
+    const el = $(id);
+    if (el.textContent !== text) el.textContent = text;
+  }
+  function cell(tag, text, className) {
+    const el = document.createElement(tag);
+    el.textContent = text;
+    if (className) el.className = className;
+    return el;
+  }
+  function restart(el, className) {
+    el.classList.remove(className);
+    void el.offsetWidth;
+    el.classList.add(className);
+  }
+
+  /* ---------- what the screen says ---------- */
+  function blockCopy(block, now) {
+    const until = new Date(block.until);
+    if (block.rule === 'hour') {
+      const tomorrow = until.toDateString() !== new Date(now).toDateString();
+      return {
+        title: '잠깐 쉬는 시간',
+        reason: '1시간 횟수를 다 썼어요',
+        when: `${tomorrow ? '내일 ' : ''}${fmtTime.format(until)}부터 다시 할 수 있어요`
+      };
+    }
+    if (block.rule === 'day') {
+      return {
+        title: '오늘은 여기까지',
+        reason: '오늘 횟수를 다 썼어요',
+        when: '내일 0시부터 다시 할 수 있어요'
+      };
+    }
+    if (block.rule === 'week') {
+      return {
+        title: '이번 주는 여기까지',
+        reason: '이번 주 횟수를 다 썼어요',
+        when: `${fmtDate.format(until)} 월요일부터 다시 할 수 있어요`
+      };
+    }
+    return {
+      title: '이번 달은 여기까지',
+      reason: '이번 달 횟수를 다 썼어요',
+      when: `${fmtDate.format(until)}에 ${RULES.monthly}회로 새로 시작해요`
+    };
+  }
+
+  function summaryText(s) {
+    const wins = [];
+    if (s.monthBig) wins.push(`큰 인형 ${s.monthBig}개`);
+    if (s.monthSmall) wins.push(`작은 인형 ${s.monthSmall}개`);
+    const winText = wins.join('와 ');
+    const spent = s.spent.toLocaleString('ko-KR');
+    if (!s.monthPlays) return `${winText}를 뽑았어요.`;
+    if (!winText) return `뽑기 ${s.monthPlays}회에 ${spent}원을 썼어요.`;
+    return `뽑기 ${s.monthPlays}회에 ${spent}원을 쓰고 ${winText}를 뽑았어요.`;
+  }
+
+  function plushSVG(kind, index, isNew) {
+    const fill = PLUSH_COLORS[(index * 2 + Math.floor(index / 3)) % PLUSH_COLORS.length];
+    const tilt = ((index * 37) % 13) - 6;
+    const stroke = `fill="${fill}" stroke="${LINE}" stroke-width="3" stroke-linejoin="round"`;
+    const ears = [
+      `<circle cx="15" cy="17" r="9" ${stroke}/><circle cx="45" cy="17" r="9" ${stroke}/>`,
+      `<ellipse cx="21" cy="14" rx="6.5" ry="12" transform="rotate(-10 21 14)" ${stroke}/><ellipse cx="39" cy="14" rx="6.5" ry="12" transform="rotate(10 39 14)" ${stroke}/>`,
+      `<path d="M9 31 L13 8 L29 18 Z" ${stroke}/><path d="M51 31 L47 8 L31 18 Z" ${stroke}/>`
+    ][index % 3];
+    return `<svg class="plush ${kind}${isNew ? ' new' : ''}" viewBox="0 0 60 60" style="--r:${tilt}deg" aria-hidden="true" focusable="false">`
+      + ears
+      + `<ellipse cx="30" cy="36" rx="23" ry="20" ${stroke}/>`
+      + `<circle cx="21.5" cy="34" r="2.6" fill="${LINE}"/><circle cx="38.5" cy="34" r="2.6" fill="${LINE}"/>`
+      + `<ellipse cx="30" cy="40.5" rx="3" ry="2.2" fill="${LINE}"/>`
+      + `<circle cx="14.5" cy="41" r="3.2" fill="#FF7FA5" opacity=".55"/><circle cx="45.5" cy="41" r="3.2" fill="#FF7FA5" opacity=".55"/>`
+      + `</svg>`;
+  }
+
+  /* ---------- render ---------- */
+  // 한도 한 줄: 막대 길이와 숫자 모두 그 기간에 남은 횟수를 보여 준다.
+  function gauge(id, left, max) {
+    const row = $(id);
+    const label = $(id + 'Count');
+    // 인형을 뽑아 기본 횟수보다 많아지면 막대는 가득 찬 채로 두고 숫자로 알려 준다.
+    const remain = Math.max(0, left);
+    row.querySelector('.gauge-fill').style.width = `${Math.min(1, remain / max) * 100}%`;
+    row.classList.toggle('spent', remain === 0);
+    if (label.dataset.shown !== String(remain)) {
+      label.dataset.shown = String(remain);
+      if (remain === 0) label.textContent = '다 썼어요';
+      else label.replaceChildren(cell('strong', String(remain)), '회 남음');
+    }
+  }
+
+  function renderLedger(now, s) {
+    const rows = ledgerRows(events, now);
+    const has = rows.length > 0;
+    $('book').hidden = !has;
+    $('undoBtn').disabled = !has;
+    setText('summary', has ? summaryText(s) : '아직 기록이 없어요. 뽑기 버튼을 누르면 여기에 적혀요.');
+
+    const shown = showAll ? rows : rows.slice(0, LEDGER_PREVIEW);
+    const frag = document.createDocumentFragment();
+    let dayKey = '';
+    for (const r of shown) {
+      const d = new Date(r.t);
+      if (d.toDateString() !== dayKey) {
+        dayKey = d.toDateString();
+        const tr = document.createElement('tr');
+        tr.className = 'day';
+        const th = cell('th', fmtDay.format(d));
+        th.colSpan = 4;
+        th.scope = 'colgroup';
+        tr.append(th);
+        frag.append(tr);
+      }
+      const tr = document.createElement('tr');
+      tr.append(
+        cell('td', fmtTime.format(d)),
+        cell('td', NAMES[r.type]),
+        cell('td', r.delta > 0 ? `+${r.delta}` : `−${-r.delta}`, r.delta > 0 ? 'num plus' : 'num minus'),
+        cell('td', String(r.balance), 'num')
+      );
+      frag.append(tr);
+    }
+    $('rows').replaceChildren(frag);
+
+    const more = $('moreBtn');
+    more.hidden = rows.length <= LEDGER_PREVIEW;
+    more.textContent = showAll ? '최근 내역만 보기' : `내역 ${rows.length}건 모두 보기`;
+  }
+
+  function renderPile(wins, s) {
+    const shown = wins.slice(-PILE_MAX);
+    const skipped = wins.length - shown.length;
+    $('pile').innerHTML = shown.map((e, i) => plushSVG(e.type, skipped + i, e.t === freshWin)).join('');
+    $('pile').setAttribute('aria-label', wins.length
+      ? `이번 달에 뽑은 인형: 큰 인형 ${s.monthBig}개, 작은 인형 ${s.monthSmall}개`
+      : '이번 달에 뽑은 인형 없음');
+    $('glassEmpty').hidden = wins.length > 0;
+    $('pileMore').hidden = skipped === 0;
+    setText('pileMore', `외 ${skipped}개`);
+  }
+
+  function render() {
+    const now = Date.now();
+    const s = summarize(events, now);
+    const today = new Date(now);
+    const month = `${today.getMonth() + 1}월`;
+
+    setText('today', fmtDay.format(today));
+    setText('monthLabel', month);
+    setText('ledgerMonth', month);
+    setText('credit', String(s.remaining));
+
+    gauge('limDay', s.left.day, RULES.perDay);
+    gauge('limWeek', s.left.week, RULES.perWeek);
+    gauge('limHour', s.left.hour, RULES.perHour);
+
+    const block = s.canNow > 0 ? null : nextOpen(events, now);
+    const nowLine = $('now');
+    $('playBtn').disabled = Boolean(block);
+    $('note').hidden = !block;
+    if (block) {
+      const copy = blockCopy(block, now);
+      setText('noteTitle', copy.title);
+      setText('noteBody', copy.reason);
+      if (nowKey !== copy.when) {
+        nowKey = copy.when;
+        nowLine.textContent = copy.when;
+      }
+    } else if (nowKey !== `can:${s.canNow}:${s.limitedBy}`) {
+      nowKey = `can:${s.canNow}:${s.limitedBy}`;
+      // 남은 횟수보다 적게 나오는 날에는 어떤 한도 때문인지 함께 적는다.
+      const why = { week: '(이번 주 한도)', day: '(오늘 한도)', hour: '(1시간 한도)' }[s.limitedBy];
+      nowLine.replaceChildren('지금 ', cell('strong', `${s.canNow}회`), ' 더 할 수 있어요');
+      if (why) nowLine.append(' ', cell('span', why, 'why'));
+    }
+
+    const last = events.length ? events[events.length - 1].t : 0;
+    const nextLedgerKey = [events.length, last, s.periods.monthStart, showAll].join(':');
+    if (nextLedgerKey !== ledgerKey) {
+      ledgerKey = nextLedgerKey;
+      renderLedger(now, s);
+    }
+    const wins = events
+      .filter((e) => e.type !== 'play' && e.t >= s.periods.monthStart && e.t < s.periods.monthEnd)
+      .sort((a, b) => a.t - b.t);
+    const nextPileKey = [wins.length, wins.length ? wins[wins.length - 1].t : 0, s.periods.monthStart].join(':');
+    if (nextPileKey !== pileKey) {
+      pileKey = nextPileKey;
+      renderPile(wins, s);
+    }
+
+    // 자정, 1시간 한도가 풀리는 순간, 그리고 적어도 1분마다 화면을 다시 계산한다.
+    const marks = [s.periods.dayEnd, now + 60000];
+    if (s.hourNext) marks.push(s.hourNext);
+    if (block) marks.push(block.until);
+    const next = Math.min(...marks.filter((t) => t > now));
+    clearTimeout(wakeTimer);
+    wakeTimer = setTimeout(render, Math.max(250, next - now + 30));
+  }
+
+  /* ---------- feedback ---------- */
+  function toast(text, undoable) {
+    const el = $('toast');
+    setText('toastText', text);
+    $('toastUndo').hidden = !undoable;
+    el.classList.add('show');
+    el.inert = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      el.classList.remove('show');
+      el.inert = true;
+    }, 5000);
+  }
+  function celebrate() {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const glass = $('glass');
+    const colors = ['#FFE169', '#FFFFFF', '#FF9DBD', '#A9E8D0'];
+    for (let i = 0; i < 14; i += 1) {
+      const spark = document.createElement('i');
+      const angle = (Math.PI * 2 * i) / 14 + Math.random() * 0.4;
+      const reach = 50 + Math.random() * 50;
+      spark.className = 'spark';
+      spark.style.background = colors[i % colors.length];
+      spark.style.setProperty('--dx', `${Math.cos(angle) * reach}px`);
+      spark.style.setProperty('--dy', `${Math.sin(angle) * reach * 0.7 - 24}px`);
+      glass.append(spark);
+      setTimeout(() => spark.remove(), 900);
+    }
+  }
+  function haptic() {
+    try {
+      if (navigator.vibrate) navigator.vibrate(12);
+    } catch (err) { /* 진동이 막힌 환경에서는 그냥 넘어간다 */ }
+  }
+
+  /* ---------- actions ---------- */
+  function record(type) {
+    const now = Date.now();
+    // 한도는 누르는 순간에 다시 확인한다(화면이 오래 켜져 있었을 수 있으므로).
+    if (type === 'play' && summarize(events, now).canNow <= 0) {
+      render();
+      return;
+    }
+    events.push({ t: now, type });
+    writeStore();
+    freshWin = type === 'play' ? 0 : now;
+    render();
+    freshWin = 0;
+    restart($('credit'), 'bump');
+    haptic();
+    if (type === 'play') {
+      restart($('machine'), 'grabbing');
+      toast('뽑기 1회를 적었어요', true);
+    } else {
+      celebrate();
+      toast(`${NAMES[type]} +${DELTA[type]}회를 적었어요`, true);
+    }
+  }
+
+  function undoLast() {
+    const { monthStart, monthEnd } = periods(Date.now());
+    let index = -1;
+    events.forEach((e, i) => {
+      if (e.t >= monthStart && e.t < monthEnd && (index < 0 || e.t >= events[index].t)) index = i;
+    });
+    if (index < 0) return;
+    const [gone] = events.splice(index, 1);
+    writeStore();
+    render();
+    toast(`${NAMES[gone.type]} 기록을 되돌렸어요`, false);
+  }
+
+  function resetAll() {
+    events = [];
+    showAll = false;
+    writeStore();
+    render();
+    closeDialog();
+    toast('기록을 모두 지웠어요', false);
+  }
+  function openDialog() {
+    const dialog = $('resetDialog');
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', '');
+  }
+  function closeDialog() {
+    const dialog = $('resetDialog');
+    if (typeof dialog.close === 'function') dialog.close();
+    else dialog.removeAttribute('open');
+  }
+
+  /* ---------- start ---------- */
+  function start(saved) {
+    canStore = probeStorage();
+    events = canStore ? readStore() : [];
+    if (!events.length && saved && Array.isArray(saved.events)) events = sanitize(saved.events);
+
+    setText('smallGain', `+${RULES.small}`);
+    setText('bigGain', `+${RULES.big}`);
+    setText('resetBody', `남은 횟수가 ${RULES.monthly}회로 돌아가요. 지운 기록은 되살릴 수 없어요.`);
+    $('rulesList').replaceChildren(
+      cell('li', `매달 1일에 ${RULES.monthly}회로 새로 시작해요. 남은 횟수는 다음 달로 넘어가지 않아요.`),
+      cell('li', `뽑기 한 판(${RULES.price.toLocaleString('ko-KR')}원)마다 1회가 줄어요.`),
+      cell('li', `인형을 뽑으면 작은 인형은 ${RULES.small}회, 큰 인형은 ${RULES.big}회를 돌려받아요. 이번 달 남은 횟수와 오늘·이번 주·1시간 횟수에 모두 더해져요.`),
+      cell('li', `기본 횟수는 하루 ${RULES.perDay}회, 일주일(월~일) ${RULES.perWeek}회, 1시간에 ${RULES.perHour}회예요.`)
+    );
+    $('toast').inert = true;
+    $('storageWarn').hidden = canStore;
+
+    $('playBtn').addEventListener('click', () => record('play'));
+    $('smallBtn').addEventListener('click', () => record('small'));
+    $('bigBtn').addEventListener('click', () => record('big'));
+    $('undoBtn').addEventListener('click', undoLast);
+    $('toastUndo').addEventListener('click', undoLast);
+    $('moreBtn').addEventListener('click', () => { showAll = !showAll; render(); });
+    $('resetBtn').addEventListener('click', openDialog);
+    $('resetCancel').addEventListener('click', closeDialog);
+    $('resetConfirm').addEventListener('click', resetAll);
+
+    document.addEventListener('touchstart', () => {}, { passive: true });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+    window.addEventListener('pageshow', render);
+    window.addEventListener('focus', render);
+    window.addEventListener('storage', (e) => {
+      if (e.key === STORE_KEY) {
+        events = readStore();
+        render();
+      }
+    });
+
+    render();
+  }
+
+  // Claude 안에서 새 버전으로 바뀔 때도 보고 있던 기록을 이어 준다(다른 곳에서는 아무 일도 하지 않는다).
+  const hot = window.claude && window.claude.hot;
+  if (hot && typeof hot.snapshot === 'function') hot.snapshot(() => ({ events }));
+  if (hot && typeof hot.ready === 'function') hot.ready(start);
+  else start((hot && hot.data) || {});
+
+  // ----- 자체 주소에 올린 버전에만 들어가는 부분: 오프라인 보관과 홈 화면 설치 안내 -----
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+  (function installTip() {
+    const tip = $('installTip');
+    const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+    let closed = false;
+    try { closed = localStorage.getItem(STORE_KEY + ':tip') === 'closed'; } catch (err) { /* 저장소를 못 쓰면 매번 안내한다 */ }
+    if (!tip || standalone || closed) return;
+
+    const ua = navigator.userAgent;
+    const inApp = /KAKAOTALK|NAVER\(inapp|Instagram|FBAN|FBAV|Line\//i.test(ua);
+    const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    let text = '기록을 시작하기 전에 홈 화면에 추가해 주세요. 브라우저 메뉴에서 "홈 화면에 추가"를 고르면 앱처럼 열려요.';
+    if (inApp) text = '지금은 다른 앱 안에서 열린 화면이에요. Safari나 Chrome으로 다시 연 다음 홈 화면에 추가해 주세요. 그래야 기록이 이어져요.';
+    else if (ios) text = '기록을 시작하기 전에 홈 화면에 추가해 주세요. 공유 버튼을 누르고 "홈 화면에 추가"를 고르면 앱처럼 열려요.';
+    $('installText').textContent = text;
+    tip.hidden = false;
+
+    let installPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      installPrompt = e;
+      $('installBtn').hidden = false;
+    });
+    $('installBtn').addEventListener('click', () => {
+      if (!installPrompt) return;
+      installPrompt.prompt();
+      installPrompt = null;
+      $('installBtn').hidden = true;
+    });
+    $('installClose').addEventListener('click', () => {
+      tip.hidden = true;
+      try { localStorage.setItem(STORE_KEY + ':tip', 'closed'); } catch (err) { /* 무시 */ }
+    });
+    window.addEventListener('appinstalled', () => { tip.hidden = true; });
+  })();
+})();
+</script>
+</body>
+</html>
