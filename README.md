@@ -34,3 +34,8 @@
 - `manifest.webmanifest`, `icons/`: 홈 화면 아이콘과 이름
 - `sw.js`: 인터넷이 약한 곳에서도 열리도록 앱 파일을 기기에 보관
 - `dev/test.mjs`: 규칙 계산 테스트. `node dev/test.mjs`로 실행합니다.
+
+## 만든 사람
+
+- 기획, 규칙 설계, 개선 방향: [mingo0229](https://github.com/mingo0229)
+- 코드 작성: Claude (Anthropic의 AI). mingo0229의 요구사항과 피드백에 따라 구현했습니다.
