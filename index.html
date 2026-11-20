@@ -248,6 +248,19 @@ button:not(:disabled) { cursor: pointer; }
 }
 .plush.small { width: 40px; height: 40px; }
 .plush.big { width: 62px; height: 62px; }
+/* 내 그림: 일반 사진은 동그랗게, 배경이 투명한 그림은 모양 그대로 테두리를 둘러 스티커처럼 */
+.plush.round {
+  background: #FFFFFF;
+  border: 3px solid var(--line);
+  border-radius: 50%;
+  object-fit: cover;
+}
+.plush.cut {
+  object-fit: contain;
+  filter:
+    drop-shadow(1.5px 0 0 var(--line)) drop-shadow(-1.5px 0 0 var(--line))
+    drop-shadow(0 1.5px 0 var(--line)) drop-shadow(0 -1.5px 0 var(--line));
+}
 .pile-more {
   position: absolute;
   top: 20px;
@@ -495,6 +508,58 @@ h2 { font: 400 22px/1.2 var(--font-display); }
 .ghost:disabled { opacity: .4; }
 .more { justify-self: start; }
 
+/* ---------- my pictures ---------- */
+.looks { display: grid; gap: 10px; }
+.looks-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  min-height: 60px;
+  padding-top: 6px;
+}
+.look { position: relative; width: 56px; height: 56px; }
+.look .plush { width: 100%; height: 100%; margin: 0; transform: none; }
+.look-pic { display: block; width: 100%; height: 100%; }
+.look-pic.round {
+  background: #FFFFFF;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  object-fit: cover;
+}
+.look-pic.cut {
+  object-fit: contain;
+  filter:
+    drop-shadow(1.5px 0 0 var(--ink)) drop-shadow(-1.5px 0 0 var(--ink))
+    drop-shadow(0 1.5px 0 var(--ink)) drop-shadow(0 -1.5px 0 var(--ink));
+}
+.look-remove {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  display: grid;
+  place-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  font-size: 17px;
+  line-height: 1;
+}
+.look-remove::after { content: ""; position: absolute; inset: -8px; }
+.looks-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* ---------- rules and footer ---------- */
 .rules { display: grid; gap: 8px; }
 .rules ul { display: grid; gap: 6px; padding-left: 1.15em; font-size: 15px; }
@@ -733,6 +798,18 @@ dialog p { margin-top: 8px; font-size: 15px; }
     <button type="button" class="ghost more" id="moreBtn" hidden></button>
   </section>
 
+  <section class="looks" aria-labelledby="looksTitle">
+    <h2 id="looksTitle">인형 그림</h2>
+    <p class="summary">유리 상자에 쌓이는 인형을 내 그림으로 바꿀 수 있어요. 고른 그림은 이 기기에만 저장되고 어디에도 올라가지 않아요.</p>
+    <div class="looks-row" id="looksRow"></div>
+    <p class="summary" id="looksState">지금은 기본 그림이에요.</p>
+    <div class="looks-actions">
+      <button type="button" class="ghost" id="plushAdd">그림 추가</button>
+      <button type="button" class="ghost" id="plushReset" hidden>기본 그림으로 되돌리기</button>
+    </div>
+    <input class="sr-only" type="file" id="plushFile" accept="image/*" multiple tabindex="-1" aria-hidden="true">
+  </section>
+
   <section class="rules" aria-labelledby="rulesTitle">
     <h2 id="rulesTitle">규칙</h2>
     <ul id="rulesList">
@@ -892,6 +969,11 @@ dialog p { margin-top: 8px; font-size: 15px; }
   const LEDGER_PREVIEW = 8;
   const PLUSH_COLORS = ['#FFB5C8', '#FFE08A', '#A9E8D0', '#BBC8FF', '#FFC9A6', '#DDBBFF'];
   const LINE = '#1D1331';
+  // 내 인형 그림(기기에서 고른 그림). 기록과 따로, 이 기기에만 저장한다.
+  const PLUSH_KEY = STORE_KEY + ':plush';
+  const PLUSH_MAX = 8;
+  const PLUSH_SIZE = 192;
+  const PLUSH_SRC = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
 
   const $ = (id) => document.getElementById(id);
   const fmtTime = new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit' });
@@ -907,6 +989,8 @@ dialog p { margin-top: 8px; font-size: 15px; }
   let nowKey = '';
   let wakeTimer = 0;
   let toastTimer = 0;
+  let plushImages = [];
+  let plushVersion = 0;
 
   /* ---------- storage ---------- */
   function probeStorage() {
@@ -1016,6 +1100,190 @@ dialog p { margin-top: 8px; font-size: 15px; }
       + `</svg>`;
   }
 
+  // 유리 상자에 놓을 인형 하나. 내 그림이 있으면 차례로 돌려 쓰고, 없으면 기본 그림을 그린다.
+  function plushNode(kind, index, isNew) {
+    if (plushImages.length) {
+      const pic = plushImages[index % plushImages.length];
+      const img = document.createElement('img');
+      img.className = `plush ${kind} ${pic.alpha ? 'cut' : 'round'}${isNew ? ' new' : ''}`;
+      img.src = pic.src;
+      img.alt = '';
+      img.draggable = false;
+      img.style.setProperty('--r', `${((index * 37) % 13) - 6}deg`);
+      return img;
+    }
+    const holder = document.createElement('template');
+    holder.innerHTML = plushSVG(kind, index, isNew);
+    return holder.content.firstElementChild;
+  }
+
+  /* ---------- my pictures: chosen on this device, kept on this device ---------- */
+  function readPlush() {
+    try {
+      const raw = localStorage.getItem(PLUSH_KEY);
+      const list = raw ? JSON.parse(raw).images : [];
+      if (!Array.isArray(list)) return [];
+      return list
+        .filter((pic) => pic && typeof pic.src === 'string' && pic.src.length < 600000 && PLUSH_SRC.test(pic.src))
+        .slice(0, PLUSH_MAX)
+        .map((pic) => ({ src: pic.src, alpha: pic.alpha === true }));
+    } catch (err) {
+      return [];
+    }
+  }
+  function writePlush(list) {
+    if (!canStore) return true; // 저장소를 못 쓰는 환경에서는 열려 있는 동안만 쓴다
+    try {
+      if (list.length) localStorage.setItem(PLUSH_KEY, JSON.stringify({ v: 1, images: list }));
+      else localStorage.removeItem(PLUSH_KEY);
+      return true;
+    } catch (err) {
+      return false; // 대개 저장 공간이 모자란 경우
+    }
+  }
+  function setPlush(list) {
+    plushImages = list;
+    plushVersion += 1;
+    renderLooks();
+    render();
+  }
+
+  function loadPicture(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => resolve({ img, done: () => URL.revokeObjectURL(url) });
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('not a picture'));
+      };
+      img.src = url;
+    });
+  }
+  function sheet(width, height) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  }
+
+  // 고른 그림을 인형 한 칸(작은 정사각형)으로 다듬는다. 원본은 어디에도 보내지 않고 이 화면 안에서만 처리한다.
+  // 배경이 투명한 그림은 빈 여백을 잘라 모양 그대로 쓰고, 일반 사진은 가운데를 정사각형으로 잘라 쓴다.
+  function toPlush(img) {
+    const w = img.naturalWidth;
+    const h = img.naturalHeight;
+    if (!w || !h) throw new Error('empty picture');
+
+    // 1) 작게 그려 보고, 비치는 부분이 있는지와 그림이 실제로 차지하는 범위를 찾는다.
+    const k = Math.min(1, 256 / Math.max(w, h));
+    const pw = Math.max(1, Math.round(w * k));
+    const ph = Math.max(1, Math.round(h * k));
+    const probe = sheet(pw, ph).getContext('2d', { willReadFrequently: true });
+    probe.drawImage(img, 0, 0, pw, ph);
+    const px = probe.getImageData(0, 0, pw, ph).data;
+    let clear = 0;
+    let minX = pw;
+    let minY = ph;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < ph; y += 1) {
+      for (let x = 0; x < pw; x += 1) {
+        const a = px[(y * pw + x) * 4 + 3];
+        if (a < 250) clear += 1;
+        if (a > 24) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) throw new Error('nothing to show');
+    const alpha = clear > pw * ph * 0.02;
+
+    // 2) 한 칸 크기로 그린다.
+    const out = sheet(PLUSH_SIZE, PLUSH_SIZE);
+    const ctx = out.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    if (alpha) {
+      const sx = minX / k;
+      const sy = minY / k;
+      const sw = Math.min(w - sx, (maxX - minX + 1) / k);
+      const sh = Math.min(h - sy, (maxY - minY + 1) / k);
+      const scale = Math.min((PLUSH_SIZE * 0.92) / sw, (PLUSH_SIZE * 0.92) / sh);
+      ctx.drawImage(img, sx, sy, sw, sh, (PLUSH_SIZE - sw * scale) / 2, (PLUSH_SIZE - sh * scale) / 2, sw * scale, sh * scale);
+      return { src: out.toDataURL('image/png'), alpha: true };
+    }
+    const side = Math.min(w, h);
+    ctx.drawImage(img, (w - side) / 2, (h - side) / 2, side, side, 0, 0, PLUSH_SIZE, PLUSH_SIZE);
+    return { src: out.toDataURL('image/jpeg', 0.86), alpha: false };
+  }
+
+  async function addPictures(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const picked = files.slice(0, Math.max(0, PLUSH_MAX - plushImages.length));
+    const added = [];
+    let failed = 0;
+    for (const file of picked) {
+      try {
+        const { img, done } = await loadPicture(file);
+        try {
+          added.push(toPlush(img));
+        } finally {
+          done();
+        }
+      } catch (err) {
+        failed += 1;
+      }
+    }
+    if (!added.length) {
+      toast(picked.length ? '그림으로 열 수 없는 파일이에요' : `그림은 ${PLUSH_MAX}장까지 넣을 수 있어요`, false);
+      return;
+    }
+    const next = plushImages.concat(added);
+    if (!writePlush(next)) {
+      toast('저장 공간이 모자라서 그림을 넣지 못했어요', false);
+      return;
+    }
+    setPlush(next);
+    let message = `그림 ${added.length}장을 넣었어요`;
+    if (failed) message += `. ${failed}개는 그림으로 열 수 없었어요`;
+    else if (files.length > picked.length) message += `. ${PLUSH_MAX}장까지만 넣을 수 있어요`;
+    toast(message, false);
+  }
+
+  function renderLooks() {
+    const custom = plushImages.length > 0;
+    const tiles = custom
+      ? plushImages.map((pic, i) => {
+        const tile = document.createElement('div');
+        const img = document.createElement('img');
+        const remove = cell('button', '×', 'look-remove');
+        tile.className = 'look';
+        img.className = `look-pic ${pic.alpha ? 'cut' : 'round'}`;
+        img.src = pic.src;
+        img.alt = `내 그림 ${i + 1}`;
+        remove.type = 'button';
+        remove.dataset.index = String(i);
+        remove.setAttribute('aria-label', `내 그림 ${i + 1} 빼기`);
+        tile.append(img, remove);
+        return tile;
+      })
+      : [0, 1, 2].map((i) => {
+        const tile = document.createElement('div');
+        tile.className = 'look';
+        tile.innerHTML = plushSVG('sample', i, false);
+        return tile;
+      });
+    $('looksRow').replaceChildren(...tiles);
+    setText('looksState', custom
+      ? `내 그림 ${plushImages.length}장이 인형을 뽑을 때마다 차례로 나와요. ${PLUSH_MAX}장까지 넣을 수 있어요.`
+      : '지금은 기본 그림이에요.');
+    $('plushReset').hidden = !custom;
+    $('plushAdd').disabled = plushImages.length >= PLUSH_MAX;
+  }
+
   /* ---------- render ---------- */
   // 한도 한 줄: 막대 길이와 숫자 모두 그 기간에 남은 횟수를 보여 준다.
   function gauge(id, left, max) {
@@ -1073,7 +1341,7 @@ dialog p { margin-top: 8px; font-size: 15px; }
   function renderPile(wins, s) {
     const shown = wins.slice(-PILE_MAX);
     const skipped = wins.length - shown.length;
-    $('pile').innerHTML = shown.map((e, i) => plushSVG(e.type, skipped + i, e.t === freshWin)).join('');
+    $('pile').replaceChildren(...shown.map((e, i) => plushNode(e.type, skipped + i, e.t === freshWin)));
     $('pile').setAttribute('aria-label', wins.length
       ? `이번 달에 뽑은 인형: 큰 인형 ${s.monthBig}개, 작은 인형 ${s.monthSmall}개`
       : '이번 달에 뽑은 인형 없음');
@@ -1126,7 +1394,7 @@ dialog p { margin-top: 8px; font-size: 15px; }
     const wins = events
       .filter((e) => e.type !== 'play' && e.t >= s.periods.monthStart && e.t < s.periods.monthEnd)
       .sort((a, b) => a.t - b.t);
-    const nextPileKey = [wins.length, wins.length ? wins[wins.length - 1].t : 0, s.periods.monthStart].join(':');
+    const nextPileKey = [wins.length, wins.length ? wins[wins.length - 1].t : 0, s.periods.monthStart, plushVersion].join(':');
     if (nextPileKey !== pileKey) {
       pileKey = nextPileKey;
       renderPile(wins, s);
@@ -1237,6 +1505,7 @@ dialog p { margin-top: 8px; font-size: 15px; }
     canStore = probeStorage();
     events = canStore ? readStore() : [];
     if (!events.length && saved && Array.isArray(saved.events)) events = sanitize(saved.events);
+    plushImages = canStore ? readPlush() : [];
 
     setText('smallGain', `+${RULES.small}`);
     setText('bigGain', `+${RULES.big}`);
@@ -1260,6 +1529,25 @@ dialog p { margin-top: 8px; font-size: 15px; }
     $('resetCancel').addEventListener('click', closeDialog);
     $('resetConfirm').addEventListener('click', resetAll);
 
+    $('plushAdd').addEventListener('click', () => $('plushFile').click());
+    $('plushFile').addEventListener('change', (e) => {
+      addPictures(e.target.files); // 파일 목록은 여기서 바로 복사해 두므로 아래에서 비워도 된다
+      e.target.value = '';
+    });
+    $('looksRow').addEventListener('click', (e) => {
+      const button = e.target.closest('.look-remove');
+      if (!button) return;
+      const next = plushImages.filter((pic, i) => i !== Number(button.dataset.index));
+      writePlush(next);
+      setPlush(next);
+      toast('그림을 뺐어요', false);
+    });
+    $('plushReset').addEventListener('click', () => {
+      writePlush([]);
+      setPlush([]);
+      toast('기본 그림으로 되돌렸어요', false);
+    });
+
     document.addEventListener('touchstart', () => {}, { passive: true });
     document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
     window.addEventListener('pageshow', render);
@@ -1269,8 +1557,10 @@ dialog p { margin-top: 8px; font-size: 15px; }
         events = readStore();
         render();
       }
+      if (e.key === PLUSH_KEY) setPlush(readPlush());
     });
 
+    renderLooks();
     render();
   }
 
