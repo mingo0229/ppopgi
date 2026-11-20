@@ -1199,14 +1199,20 @@ dialog p { margin-top: 8px; font-size: 15px; }
 
   // 가장자리가 거의 한 가지 색이면 그 색을 배경으로 보고, 가장자리에서 이어진 배경만 투명하게 만든다.
   // 색만 보지 않고 '경계선'도 함께 본다: 흰 배경 위의 옅은 색 그림처럼 배경과 색이 비슷해도,
-  // 그림의 가장자리(색이 갑자기 바뀌는 곳)에서 멈추므로 그림 안쪽은 지워지지 않는다.
+  // 그림의 가장자리(색이 바뀌는 곳)에서 멈추므로 그림 안쪽은 지워지지 않는다.
+  // 테두리 선이 끊긴 그림은 벽을 점점 두껍게 보면서 새지 않는 지점을 찾는다.
   // 배경이 복잡하거나 지운 결과가 이상하면 아무것도 바꾸지 않고 false를 돌려준다.
   function wipeFlatBackground(px, w, h) {
     const n = w * h;
     const LOOSE = 28; // 배경색에서 이만큼까지는 '배경일 수 있는 색'으로 본다
+    const longer = Math.max(w, h);
     const border = [];
     for (let x = 0; x < w; x += 1) border.push(x, (h - 1) * w + x);
     for (let y = 1; y < h - 1; y += 1) border.push(y * w, y * w + w - 1);
+    const around = (i) => {
+      const x = i % w;
+      return [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i >= w ? i - w : -1, i < n - w ? i + w : -1];
+    };
 
     // 1) 가장자리에서 가장 흔한 색을 배경색 후보로 삼는다(색을 굵게 나눠서 센다).
     const bins = new Map();
@@ -1265,69 +1271,122 @@ dialog p { margin-top: 8px; font-size: 15px; }
     const fadeFrom = Math.max(8, Math.min(20, farNoise * 2 + 6));
     const fadeTo = fadeFrom * 2.5;
 
-    // 4) 벽: 배경이 아닌 색이거나(깨끗한 배경이라면) 경계선인 점. 선이 살짝 끊긴 곳으로 새지 않게 벽을 조금 두껍게 한다.
+    // 4) 벽: 배경이 아닌 색이거나, (깨끗한 배경이라면) 경계선인 점.
     const wall = new Uint8Array(n);
     for (let i = 0; i < n; i += 1) wall[i] = far[i] > LOOSE || (clean && edge[i] > STEP) ? 1 : 0;
-    const near = (flags, i) => {
-      const x = i % w;
-      return (x > 0 && flags[i - 1]) || (x < w - 1 && flags[i + 1]) || (i >= w && flags[i - w]) || (i < n - w && flags[i + w]);
-    };
-    const gap = Math.max(1, Math.round(Math.max(w, h) / 384));
-    let thick = wall;
-    for (let step = 0; step < gap; step += 1) {
-      const grown = thick.slice();
-      for (let i = 0; i < n; i += 1) if (!thick[i] && near(thick, i)) grown[i] = 1;
-      thick = grown;
-    }
-
-    // 5) 가장자리에서 출발해 벽에 막힐 때까지 배경을 따라간다.
-    const mask = new Uint8Array(n);
-    const stack = new Int32Array(n);
-    let size = 0;
-    const visit = (j) => {
-      if (!mask[j] && !thick[j]) {
-        mask[j] = 1;
-        stack[size] = j;
-        size += 1;
+    if (clean) {
+      // 가장자리가 흐릿한 옅은 색 그림: 바로 옆 점과는 차이가 작아도 몇 점 떨어진 곳과 비교하면 차이가 난다.
+      // 그 차이가 나는 두 점 가운데 그림 쪽(배경색에서 더 먼 쪽)을 벽으로 삼는다.
+      const reach = Math.max(3, Math.round(longer / 96));
+      const WIDE = 10;
+      const compare = (i, j) => {
+        if (far[i] > LOOSE || far[j] > LOOSE) return; // 분명한 그림 색은 이미 벽이다
+        if (jump(i, j) > WIDE) wall[far[i] >= far[j] ? i : j] = 1;
+      };
+      for (let i = 0; i < n; i += 1) {
+        if ((i % w) + reach < w) compare(i, i + reach);
+        if (i + reach * w < n) compare(i, i + reach * w);
       }
-    };
-    for (const i of border) visit(i);
-    while (size) {
-      size -= 1;
-      const i = stack[size];
-      const x = i % w;
-      if (x > 0) visit(i - 1);
-      if (x < w - 1) visit(i + 1);
-      if (i >= w) visit(i - w);
-      if (i < n - w) visit(i + w);
-    }
-    // 벽을 두껍게 하느라 남겨 둔 띠를 되찾는다(진짜 벽은 넘지 않는다).
-    for (let step = 0; step < gap; step += 1) {
-      const more = [];
-      for (let i = 0; i < n; i += 1) if (!mask[i] && !wall[i] && near(mask, i)) more.push(i);
-      for (const i of more) mask[i] = 1;
     }
 
-    // 6) 지운 곳과 맞닿은 테두리 몇 점은 배경색이 섞인 만큼 옅게 해서 흰 테가 남지 않게 한다.
+    // 5) 모든 점에서 가장 가까운 벽까지의 걸음 수(상하좌우). 벽을 '두껍게 본다'는 것은 이 값이 작은 점도 벽으로 친다는 뜻이다.
+    const dist = new Uint8Array(n);
+    for (let i = 0; i < n; i += 1) dist[i] = wall[i] ? 0 : 255;
+    for (let i = 0; i < n; i += 1) {
+      if (!dist[i]) continue;
+      let d = dist[i];
+      if (i % w > 0 && dist[i - 1] + 1 < d) d = dist[i - 1] + 1;
+      if (i >= w && dist[i - w] + 1 < d) d = dist[i - w] + 1;
+      dist[i] = d;
+    }
+    for (let i = n - 1; i >= 0; i -= 1) {
+      if (!dist[i]) continue;
+      let d = dist[i];
+      if (i % w < w - 1 && dist[i + 1] + 1 < d) d = dist[i + 1] + 1;
+      if (i < n - w && dist[i + w] + 1 < d) d = dist[i + w] + 1;
+      dist[i] = d;
+    }
+
+    // 6) 벽을 r걸음 두껍게 보고 배경을 지워 본다. 테두리 선에 2r보다 좁은 틈이 있어도 그 틈으로 새지 않는다.
+    const stack = new Int32Array(n);
+    const carve = (r) => {
+      const mask = new Uint8Array(n);
+      let size = 0;
+      const visit = (j) => {
+        if (j >= 0 && !mask[j] && dist[j] > r) {
+          mask[j] = 1;
+          stack[size] = j;
+          size += 1;
+        }
+      };
+      for (const i of border) if (far[i] <= fadeFrom) visit(i); // 배경색이 분명한 가장자리에서만 출발한다
+      while (size) {
+        size -= 1;
+        for (const j of around(stack[size])) visit(j);
+      }
+      // 벽을 두껍게 보느라 남겨 둔 띠를 r걸음만큼 되찾는다(진짜 벽은 넘지 않는다).
+      let rim = [];
+      for (let i = 0; i < n; i += 1) {
+        if (mask[i] || wall[i]) continue;
+        if (around(i).some((j) => j >= 0 && mask[j] === 1)) rim.push(i);
+      }
+      for (const i of border) if (!mask[i] && !wall[i] && far[i] <= fadeFrom) rim.push(i);
+      for (const i of rim) mask[i] = 2;
+      for (let step = 1; step < r && rim.length; step += 1) {
+        const next = [];
+        for (const i of rim) {
+          for (const j of around(i)) {
+            if (j >= 0 && !mask[j] && !wall[j]) {
+              mask[j] = 2;
+              next.push(j);
+            }
+          }
+        }
+        rim = next;
+      }
+      let kept = 0;
+      for (let i = 0; i < n; i += 1) if (!mask[i]) kept += 1;
+      return { mask, kept };
+    };
+
+    // 7) 벽 두께를 정한다. 가장 두껍게 봤을 때 남는 양을 기준으로, 그와 비슷하게 남는 가장 얇은 두께를 고른다.
+    //    (얇게 봤을 때 훨씬 적게 남는다면 틈으로 배경이 새어 그림 안쪽까지 지워진 것이다.)
+    const base = Math.max(1, Math.round(longer / 384));
+    const widest = carve(base * 8);
+    let pick = widest;
+    for (const r of [base, base * 2, base * 4]) {
+      const trial = carve(r);
+      if (trial.kept >= widest.kept * 0.92) {
+        pick = trial;
+        break;
+      }
+    }
+    const mask = pick.mask;
+
+    // 8) 지운 곳과 맞닿은 테두리 몇 점은 배경색이 섞인 만큼 옅게 해서 배경색 테가 남지 않게 한다.
     const alpha = new Uint8Array(n).fill(255);
-    const seen = mask.slice();
+    const seen = new Uint8Array(n);
     let rim = [];
     for (let i = 0; i < n; i += 1) {
-      if (mask[i]) alpha[i] = 0;
-      else if (near(mask, i)) {
+      if (mask[i]) {
+        alpha[i] = 0;
+        seen[i] = 1;
+      }
+    }
+    for (let i = 0; i < n; i += 1) {
+      if (!mask[i] && around(i).some((j) => j >= 0 && mask[j])) {
         seen[i] = 1;
         rim.push(i);
       }
     }
-    const depth = Math.max(3, Math.round(Math.max(w, h) / 128));
+    const depth = base + 4;
     for (let ring = 0; ring < depth && rim.length; ring += 1) {
       const next = [];
       for (const i of rim) {
         if (far[i] >= fadeTo) continue; // 분명한 그림 색: 그대로 두고 더 들어가지 않는다
         alpha[i] = far[i] <= fadeFrom ? 0 : Math.round((255 * (far[i] - fadeFrom)) / (fadeTo - fadeFrom));
-        const x = i % w;
-        for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) {
-          if (j >= 0 && j < n && !seen[j]) {
+        for (const j of around(i)) {
+          if (j >= 0 && !seen[j]) {
             seen[j] = 1;
             next.push(j);
           }
@@ -1336,24 +1395,23 @@ dialog p { margin-top: 8px; font-size: 15px; }
       rim = next;
     }
 
-    // 7) 떨어져 남은 아주 작은 점(압축 잡티)은 지운다.
+    // 9) 떨어져 남은 아주 작은 점(압축 잡티)은 지운다.
     const minSize = Math.max(6, Math.round(n * 0.00012));
     const done = new Uint8Array(n);
     const members = new Int32Array(n);
     for (let start = 0; start < n; start += 1) {
       if (done[start] || alpha[start] <= 24) continue;
       let count = 0;
-      size = 1;
+      let size = 1;
       stack[0] = start;
       done[start] = 1;
       while (size) {
         size -= 1;
         const i = stack[size];
-        const x = i % w;
         members[count] = i;
         count += 1;
-        for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) {
-          if (j >= 0 && j < n && !done[j] && alpha[j] > 24) {
+        for (const j of around(i)) {
+          if (j >= 0 && !done[j] && alpha[j] > 24) {
             done[j] = 1;
             stack[size] = j;
             size += 1;
@@ -1363,7 +1421,7 @@ dialog p { margin-top: 8px; font-size: 15px; }
       if (count < minSize) for (let k = 0; k < count; k += 1) alpha[members[k]] = 0;
     }
 
-    // 8) 거의 안 지워졌거나, 남은 것이 선 몇 줄뿐이면(배경이 그림 안으로 새어 든 경우) 포기한다.
+    // 10) 거의 안 지워졌거나, 남은 것이 선 몇 줄뿐이면(배경이 그림 안으로 새어 든 경우) 포기한다.
     let kept = 0;
     let minX = w;
     let minY = h;
